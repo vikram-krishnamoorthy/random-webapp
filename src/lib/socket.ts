@@ -1,10 +1,11 @@
 import { io, Socket } from 'socket.io-client';
+import type { ManagerOptions, SocketOptions } from 'socket.io-client';
 
 let socket: Socket | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-export const initializeSocket = () => {
+export const initializeSocket = (): Socket => {
   if (socket?.connected) return socket;
 
   if (socket) {
@@ -14,7 +15,7 @@ export const initializeSocket = () => {
 
   const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || window.location.origin;
 
-  socket = io(socketUrl, {
+  const options: Partial<ManagerOptions & SocketOptions> = {
     path: '/api/socketio',
     addTrailingSlash: false,
     reconnection: true,
@@ -40,39 +41,35 @@ export const initializeSocket = () => {
       timestamp: Date.now(),
     },
     query: {
-      t: Date.now(),
+      t: Date.now().toString(),
       EIO: '4',
       transport: 'polling',
     },
-  });
+  };
 
-  socket.io.on("error", (error) => {
-    console.error('Transport error:', error);
+  socket = io(socketUrl, options);
+
+  socket.io.engine.on("error", (err: string | Error) => {
+    console.error('Transport error:', err);
     if (socket) {
       socket.io.opts.transports = ['polling'];
       socket.connect();
     }
   });
 
-  socket.io.on("reconnect_attempt", () => {
+  socket.io.engine.on("upgradeError", (err: string | Error) => {
+    console.error('WebSocket upgrade failed:', err);
     if (socket) {
       socket.io.opts.transports = ['polling'];
     }
   });
 
-  socket.io.on("upgrade", () => {
+  socket.io.engine.on("upgrade", () => {
     console.log('Transport upgraded to WebSocket');
   });
 
-  socket.io.on("upgrade_error", (error) => {
-    console.error('WebSocket upgrade failed:', error);
-    if (socket) {
-      socket.io.opts.transports = ['polling'];
-    }
-  });
-
-  socket.on('connect_error', (error) => {
-    console.error('Socket connection error:', error);
+  socket.on('connect_error', (err: Error) => {
+    console.error('Socket connection error:', err);
     reconnectAttempts++;
     
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
@@ -89,7 +86,7 @@ export const initializeSocket = () => {
     }, Math.min(1000 * Math.pow(2, reconnectAttempts), 10000));
   });
 
-  socket.on('reconnect_attempt', (attempt) => {
+  socket.on('reconnect_attempt', (attempt: number) => {
     console.log(`Reconnection attempt ${attempt}`);
     if (socket) {
       socket.auth = { timestamp: Date.now() };
@@ -104,12 +101,14 @@ export const initializeSocket = () => {
     // Try upgrading to WebSocket after successful polling connection
     if (socket) {
       setTimeout(() => {
-        socket.io.opts.transports = ['polling', 'websocket'];
+        if (socket?.io.opts.transports) {
+          socket.io.opts.transports = ['polling', 'websocket'];
+        }
       }, 1000);
     }
   });
 
-  socket.on('disconnect', (reason) => {
+  socket.on('disconnect', (reason: string) => {
     console.log('Socket disconnected:', reason);
     if (reason === 'io server disconnect' || reason === 'transport close' || reason === 'transport error') {
       setTimeout(() => {
@@ -121,8 +120,8 @@ export const initializeSocket = () => {
     }
   });
 
-  socket.on('error', (error) => {
-    console.error('Socket error:', error);
+  socket.on('error', (err: Error) => {
+    console.error('Socket error:', err);
     if (socket?.connected) {
       socket.io.opts.transports = ['polling'];
       socket.disconnect().connect();
@@ -140,14 +139,14 @@ export const initializeSocket = () => {
   return socket;
 };
 
-export const getSocket = () => {
+export const getSocket = (): Socket => {
   if (!socket || !socket.connected) {
     return initializeSocket();
   }
   return socket;
 };
 
-export const closeSocket = () => {
+export const closeSocket = (): void => {
   if (socket) {
     socket.disconnect();
     socket = null;

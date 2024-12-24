@@ -1,9 +1,10 @@
-import { Server as IOServer } from 'socket.io';
+import { Server as IOServer, Socket } from 'socket.io';
 import type { NextRequest } from 'next/server';
-import { Chess } from 'chess.js';
+import { Chess, Move } from 'chess.js';
 
 export const config = {
   runtime: 'edge',
+  regions: ['iad1'],  // US East (N. Virginia)
 };
 
 interface GameRoom {
@@ -16,13 +17,23 @@ interface GameRoom {
   lastPing?: number;
 }
 
+interface GameState {
+  fen: string;
+  white?: string;
+  black?: string;
+  moves: string[];
+  isGameOver: boolean;
+  turn: string;
+  lastMove?: Move;
+}
+
 const rooms = new Map<string, GameRoom>();
 const ROOM_CLEANUP_INTERVAL = 30000;
 const ROOM_INACTIVE_TIMEOUT = 300000;
 
 let io: IOServer | null = null;
 
-const initSocketServer = () => {
+const initSocketServer = (): IOServer => {
   if (io) return io;
 
   io = new IOServer({
@@ -59,12 +70,12 @@ const initSocketServer = () => {
     });
   }, ROOM_CLEANUP_INTERVAL);
 
-  io.on('connection', (socket) => {
+  io.on('connection', (socket: Socket) => {
     console.log('Client connected:', socket.id);
     
     socket.on('ping', () => {
       socket.emit('pong');
-      rooms.forEach((room, roomId) => {
+      rooms.forEach((room) => {
         if (room.white === socket.id || room.black === socket.id || room.spectators.includes(socket.id)) {
           room.lastPing = Date.now();
         }
@@ -74,14 +85,15 @@ const initSocketServer = () => {
     socket.on('requestGameState', (roomId: string) => {
       const room = rooms.get(roomId);
       if (room) {
-        socket.emit('gameState', {
+        const gameState: GameState = {
           fen: room.game.fen(),
           white: room.white,
           black: room.black,
           moves: room.moves,
           isGameOver: room.game.isGameOver(),
           turn: room.game.turn(),
-        });
+        };
+        socket.emit('gameState', gameState);
       } else {
         socket.emit('error', 'Room not found');
       }
@@ -105,14 +117,15 @@ const initSocketServer = () => {
         socket.join(roomId);
         socket.emit('roomCreated', { roomId, color: 'white' });
         
-        io?.to(roomId).emit('gameState', {
+        const gameState: GameState = {
           fen: game.fen(),
           white: socket.id,
           black: undefined,
           moves: [],
           isGameOver: false,
           turn: 'w',
-        });
+        };
+        io?.to(roomId).emit('gameState', gameState);
 
         console.log('Room created:', roomId);
       } catch (error) {
@@ -151,14 +164,15 @@ const initSocketServer = () => {
           socket.emit('spectatorMode');
         }
 
-        io?.to(roomId).emit('gameState', {
+        const gameState: GameState = {
           fen: room.game.fen(),
           white: room.white,
           black: room.black,
           moves: room.moves,
           isGameOver: room.game.isGameOver(),
           turn: room.game.turn(),
-        });
+        };
+        io?.to(roomId).emit('gameState', gameState);
       } catch (error) {
         console.error('Error joining room:', error);
         socket.emit('error', 'Failed to join room');
@@ -190,7 +204,7 @@ const initSocketServer = () => {
           room.lastMoveTime = Date.now();
           room.lastPing = Date.now();
 
-          io?.to(roomId).emit('gameState', {
+          const gameState: GameState = {
             fen: room.game.fen(),
             white: room.white,
             black: room.black,
@@ -198,7 +212,8 @@ const initSocketServer = () => {
             isGameOver: room.game.isGameOver(),
             turn: room.game.turn(),
             lastMove: result,
-          });
+          };
+          io?.to(roomId).emit('gameState', gameState);
 
           if (room.game.isGameOver()) {
             let gameResult;
@@ -249,7 +264,7 @@ const initSocketServer = () => {
   return io;
 };
 
-export default async function handler(req: NextRequest) {
+export default async function handler(req: NextRequest): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
       status: 200,
@@ -266,7 +281,7 @@ export default async function handler(req: NextRequest) {
     const io = initSocketServer();
     
     return new Promise<Response>((resolve, reject) => {
-      io?.engine.handleRequest(req as any, undefined as any, (err?: Error) => {
+      io.engine.handleRequest(req as any, {} as any, (err?: Error) => {
         if (err) {
           console.error('Socket.IO request handling error:', err);
           reject(new Response('Internal Server Error', { status: 500 }));
