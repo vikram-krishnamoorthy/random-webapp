@@ -24,8 +24,8 @@ const nextConfig = {
         headers: [
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
           { key: 'Access-Control-Allow-Origin', value: '*' },
-          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,OPTIONS' },
-          { key: 'Access-Control-Allow-Headers', value: 'Content-Type' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,OPTIONS,PUT,DELETE,PATCH' },
+          { key: 'Access-Control-Allow-Headers', value: 'X-Requested-With,Content-Type,Accept,Authorization' },
         ],
       },
     ];
@@ -37,6 +37,12 @@ const nextConfig = {
         {
           source: '/api/socketio/:path*',
           destination: '/api/socket',
+          has: [
+            {
+              type: 'query',
+              key: 'EIO',
+            },
+          ],
         },
       ],
     };

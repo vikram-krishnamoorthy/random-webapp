@@ -44,12 +44,19 @@ const initSocketServer = (server: HTTPServer) => {
     transports: ['polling', 'websocket'],
     cors: {
       origin: '*',
-      methods: ['GET', 'POST', 'OPTIONS'],
+      methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE', 'PATCH'],
+      allowedHeaders: ['X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
       credentials: true,
     },
     connectTimeout: 10000,
     pingTimeout: 5000,
     pingInterval: 3000,
+    upgradeTimeout: 10000,
+    allowUpgrades: true,
+    cookie: false,
+    serveClient: false,
+    allowEIO3: true,
+    maxHttpBufferSize: 1e8,
   });
 
   (server as ServerWithIO).io = io;
