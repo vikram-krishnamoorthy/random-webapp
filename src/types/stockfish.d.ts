@@ -7,4 +7,4 @@ declare module 'stockfish' {
 
   function Stockfish(): Stockfish;
   export default Stockfish;
-} 
+}

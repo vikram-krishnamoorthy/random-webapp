@@ -56,7 +56,7 @@ const initSocketServer = (server: HTTPServer) => {
 
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
-    
+
     socket.on('requestGameState', (roomId: string) => {
       const room = rooms.get(roomId);
       if (room) {
@@ -66,7 +66,7 @@ const initSocketServer = (server: HTTPServer) => {
           black: room.black,
           moves: room.moves,
           isGameOver: room.game.isGameOver(),
-          turn: room.game.turn()
+          turn: room.game.turn(),
         });
       }
     });
@@ -75,26 +75,26 @@ const initSocketServer = (server: HTTPServer) => {
       try {
         const roomId = Math.random().toString(36).substring(7);
         const game = new Chess();
-        
+
         rooms.set(roomId, {
           white: socket.id,
           black: undefined,
           spectators: [],
           game,
           moves: [],
-          lastMoveTime: Date.now()
+          lastMoveTime: Date.now(),
         });
 
         socket.join(roomId);
         socket.emit('roomCreated', { roomId, color: 'white' });
-        
+
         io?.to(roomId).emit('gameState', {
           fen: game.fen(),
           white: socket.id,
           black: undefined,
           moves: [],
           isGameOver: false,
-          turn: 'w'
+          turn: 'w',
         });
 
         console.log('Room created:', roomId);
@@ -125,7 +125,7 @@ const initSocketServer = (server: HTTPServer) => {
         }
 
         socket.join(roomId);
-        
+
         if (assignedColor) {
           socket.emit('colorAssigned', assignedColor);
           console.log('Color assigned:', assignedColor, 'to', socket.id);
@@ -139,7 +139,7 @@ const initSocketServer = (server: HTTPServer) => {
           black: room.black,
           moves: room.moves,
           isGameOver: room.game.isGameOver(),
-          turn: room.game.turn()
+          turn: room.game.turn(),
         });
       } catch (error) {
         console.error('Error joining room:', error);
@@ -156,7 +156,10 @@ const initSocketServer = (server: HTTPServer) => {
         }
 
         const isWhiteTurn = room.game.turn() === 'w';
-        if ((isWhiteTurn && room.white !== socket.id) || (!isWhiteTurn && room.black !== socket.id)) {
+        if (
+          (isWhiteTurn && room.white !== socket.id) ||
+          (!isWhiteTurn && room.black !== socket.id)
+        ) {
           socket.emit('error', 'Not your turn');
           return;
         }
@@ -178,7 +181,7 @@ const initSocketServer = (server: HTTPServer) => {
             moves: room.moves,
             isGameOver: room.game.isGameOver(),
             turn: room.game.turn(),
-            lastMove: result
+            lastMove: result,
           });
 
           if (room.game.isGameOver()) {
@@ -207,11 +210,11 @@ const initSocketServer = (server: HTTPServer) => {
             const color = room.white === socket.id ? 'white' : 'black';
             if (color === 'white') room.white = undefined;
             if (color === 'black') room.black = undefined;
-            
+
             io?.to(roomId).emit('playerLeft', {
               color,
               gameState: room.game.fen(),
-              moves: room.moves
+              moves: room.moves,
             });
 
             if (!room.white && !room.black && room.spectators.length === 0) {
@@ -219,7 +222,7 @@ const initSocketServer = (server: HTTPServer) => {
               console.log('Room deleted:', roomId);
             }
           }
-          room.spectators = room.spectators.filter(id => id !== socket.id);
+          room.spectators = room.spectators.filter((id) => id !== socket.id);
         });
       } catch (error) {
         console.error('Error handling disconnect:', error);
@@ -238,7 +241,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponseW
 
   try {
     const io = initSocketServer(res.socket.server);
-    
+
     // Handle the socket.io request
     await new Promise((resolve) => {
       // @ts-ignore - types mismatch but this works
@@ -248,4 +251,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponseW
     console.error('Socket.IO error:', err);
     res.status(500).end();
   }
-} 
+}

@@ -11,7 +11,7 @@ export const initializeSocket = () => {
   }
 
   const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || window.location.origin;
-  
+
   socket = io(socketUrl, {
     path: '/api/socketio',
     addTrailingSlash: false,
@@ -23,8 +23,8 @@ export const initializeSocket = () => {
     timeout: 10000,
     forceNew: true,
     auth: {
-      timestamp: Date.now()
-    }
+      timestamp: Date.now(),
+    },
   });
 
   socket.on('connect_error', (error) => {
@@ -72,4 +72,4 @@ export const closeSocket = () => {
     socket.disconnect();
     socket = null;
   }
-}; 
+};

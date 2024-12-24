@@ -38,7 +38,7 @@ export default function ChessGame() {
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [currentOpeningMove, setCurrentOpeningMove] = useState(0);
   const [currentOpening, setCurrentOpening] = useState<string>('');
-  
+
   // Multiplayer states
   const [socket, setSocket] = useState<Socket | null>(null);
   const [roomId, setRoomId] = useState<string>('');
@@ -86,7 +86,7 @@ export default function ChessGame() {
       socket.on('connect', () => {
         setIsConnected(true);
         console.log('Connected to server');
-        
+
         // Request game state if rejoining a room
         if (roomId) {
           socket.emit('requestGameState', roomId);
@@ -183,72 +183,80 @@ export default function ChessGame() {
   }, [socket]);
 
   // Join a multiplayer game
-  const joinMultiplayerGame = useCallback((roomToJoin: string) => {
-    if (!socket || !roomToJoin) return;
-    const newGame = new Chess();
-    setGame(newGame);
-    setMoveHistory([]);
-    socket.emit('joinRoom', roomToJoin);
-    setIsGameStarted(true);
-  }, [socket]);
+  const joinMultiplayerGame = useCallback(
+    (roomToJoin: string) => {
+      if (!socket || !roomToJoin) return;
+      const newGame = new Chess();
+      setGame(newGame);
+      setMoveHistory([]);
+      socket.emit('joinRoom', roomToJoin);
+      setIsGameStarted(true);
+    },
+    [socket]
+  );
 
   // Check if it's AI's turn
   const isAITurn = useCallback(() => {
-    return gameMode === 'play' && 
-           isGameStarted && 
-           !game.isGameOver() && 
-           ((game.turn() === 'w' && playerColor === 'black') || 
-            (game.turn() === 'b' && playerColor === 'white'));
+    return (
+      gameMode === 'play' &&
+      isGameStarted &&
+      !game.isGameOver() &&
+      ((game.turn() === 'w' && playerColor === 'black') ||
+        (game.turn() === 'b' && playerColor === 'white'))
+    );
   }, [game, playerColor, gameMode, isGameStarted]);
 
   // Make a move and handle game state
-  const makeMove = useCallback((move: any) => {
-    const gameCopy = new Chess(game.fen());
-    try {
-      const result = gameCopy.move(move);
-      if (result) {
-        setGame(gameCopy);
-        
-        // In multiplayer mode, send move to server
-        if (gameMode === 'multiplayer' && socket) {
-          console.log('Sending move to server:', {
-            roomId,
-            move: result,
-            fen: gameCopy.fen()
-          });
-          socket.emit('move', {
-            roomId,
-            move: result,
-            fen: gameCopy.fen()
-          });
-        } else {
-          // For non-multiplayer modes, update move history locally
-          setMoveHistory(prev => [...prev, result.san]);
-          // Update opening recognition
-          const opening = recognizeOpening(gameCopy.history());
-          setCurrentOpening(opening);
-        }
-        
-        // Handle training mode move verification
-        if (gameMode === 'training' && selectedOpening) {
-          const openingMoves = OPENINGS[selectedOpening];
-          if (currentOpeningMove < openingMoves.length) {
-            if (result.san === openingMoves[currentOpeningMove]) {
-              setCurrentOpeningMove(prev => prev + 1);
-            } else {
-              alert('That move deviates from the selected opening. Try again!');
-              return false;
+  const makeMove = useCallback(
+    (move: any) => {
+      const gameCopy = new Chess(game.fen());
+      try {
+        const result = gameCopy.move(move);
+        if (result) {
+          setGame(gameCopy);
+
+          // In multiplayer mode, send move to server
+          if (gameMode === 'multiplayer' && socket) {
+            console.log('Sending move to server:', {
+              roomId,
+              move: result,
+              fen: gameCopy.fen(),
+            });
+            socket.emit('move', {
+              roomId,
+              move: result,
+              fen: gameCopy.fen(),
+            });
+          } else {
+            // For non-multiplayer modes, update move history locally
+            setMoveHistory((prev) => [...prev, result.san]);
+            // Update opening recognition
+            const opening = recognizeOpening(gameCopy.history());
+            setCurrentOpening(opening);
+          }
+
+          // Handle training mode move verification
+          if (gameMode === 'training' && selectedOpening) {
+            const openingMoves = OPENINGS[selectedOpening];
+            if (currentOpeningMove < openingMoves.length) {
+              if (result.san === openingMoves[currentOpeningMove]) {
+                setCurrentOpeningMove((prev) => prev + 1);
+              } else {
+                alert('That move deviates from the selected opening. Try again!');
+                return false;
+              }
             }
           }
+          return true;
         }
-        return true;
+      } catch (error) {
+        console.error('Move error:', error);
+        return false;
       }
-    } catch (error) {
-      console.error('Move error:', error);
       return false;
-    }
-    return false;
-  }, [game, gameMode, socket, roomId, selectedOpening, currentOpeningMove]);
+    },
+    [game, gameMode, socket, roomId, selectedOpening, currentOpeningMove]
+  );
 
   // Effect to handle AI moves
   useEffect(() => {
@@ -260,13 +268,23 @@ export default function ChessGame() {
   // Evaluate position (simple material counting)
   const evaluatePosition = (game: Chess) => {
     const pieceValues = {
-      p: 1, n: 3, b: 3, r: 5, q: 9, k: 0,
-      P: -1, N: -3, B: -3, R: -5, Q: -9, K: 0
+      p: 1,
+      n: 3,
+      b: 3,
+      r: 5,
+      q: 9,
+      k: 0,
+      P: -1,
+      N: -3,
+      B: -3,
+      R: -5,
+      Q: -9,
+      K: 0,
     };
-    
+
     let score = 0;
     const board = game.board();
-    
+
     for (let i = 0; i < 8; i++) {
       for (let j = 0; j < 8; j++) {
         const piece = board[i][j];
@@ -275,7 +293,7 @@ export default function ChessGame() {
         }
       }
     }
-    
+
     return score;
   };
 
@@ -283,13 +301,13 @@ export default function ChessGame() {
   const getBestMove = (game: Chess) => {
     const moves = game.moves({ verbose: true });
     if (moves.length === 0) return null;
-    
-    const movesWithEvaluation = moves.map(move => {
+
+    const movesWithEvaluation = moves.map((move) => {
       const gameCopy = new Chess(game.fen());
       gameCopy.move(move);
-      
+
       let score = evaluatePosition(gameCopy);
-      
+
       // Add positional bonuses based on engine level
       if (engineLevel > 10) {
         // Control of center
@@ -301,13 +319,13 @@ export default function ChessGame() {
         // Don't move queen too early
         if (move.piece === 'q' && moveHistory.length < 6) score -= 0.2;
       }
-      
+
       return { move, score };
     });
-    
+
     // Sort moves by score
     movesWithEvaluation.sort((a, b) => b.score - a.score);
-    
+
     // Add randomness based on engine level
     const randomFactor = (20 - engineLevel) / 20;
     const randomIndex = Math.floor(Math.random() * movesWithEvaluation.length * randomFactor);
@@ -317,7 +335,7 @@ export default function ChessGame() {
   // Handle AI move
   const makeAIMove = useCallback(() => {
     if (!isAITurn()) return;
-    
+
     const move = getBestMove(game);
     if (move) {
       setTimeout(() => {
@@ -333,7 +351,7 @@ export default function ChessGame() {
   // Handle piece drop
   function onDrop(sourceSquare: string, targetSquare: string) {
     if (!isGameStarted) return false;
-    
+
     // In multiplayer mode, only allow moves on player's turn
     if (gameMode === 'multiplayer') {
       if (waitingForOpponent) return false;
@@ -349,12 +367,12 @@ export default function ChessGame() {
         // Validate move locally first
         const gameCopy = new Chess(game.fen());
         const result = gameCopy.move(move);
-        
+
         if (result) {
           // If move is valid, send to server
           socket?.emit('move', {
             roomId,
-            move
+            move,
           });
           return true;
         }
@@ -382,7 +400,7 @@ export default function ChessGame() {
     setIsGameStarted(true);
     setMoveHistory([]);
     setCurrentOpeningMove(0);
-    
+
     if (color) {
       setPlayerColor(color);
     } else {
@@ -461,9 +479,7 @@ export default function ChessGame() {
               </div>
             </div>
             {waitingForOpponent && (
-              <div className="text-yellow-600">
-                Waiting for opponent... Share Room ID: {roomId}
-              </div>
+              <div className="text-yellow-600">Waiting for opponent... Share Room ID: {roomId}</div>
             )}
           </div>
         )}
@@ -476,9 +492,7 @@ export default function ChessGame() {
             setIsGameStarted(false);
           }}
           className={`px-4 py-2 rounded ${
-            gameMode === 'training'
-              ? 'bg-green-500 text-white'
-              : 'bg-gray-200 text-gray-700'
+            gameMode === 'training' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700'
           }`}
         >
           Opening Training
@@ -489,15 +503,13 @@ export default function ChessGame() {
             setIsGameStarted(false);
           }}
           className={`px-4 py-2 rounded ${
-            gameMode === 'multiplayer'
-              ? 'bg-green-500 text-white'
-              : 'bg-gray-200 text-gray-700'
+            gameMode === 'multiplayer' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700'
           }`}
         >
           Multiplayer
         </button>
       </div>
-      
+
       {gameMode === 'training' && (
         <div className="flex flex-col gap-2 mb-4">
           <select
@@ -572,13 +584,11 @@ export default function ChessGame() {
         </div>
       ) : (
         <div className="text-lg mb-4">
-          {gameMode === 'play' ? (
-            'Select a color to start'
-          ) : gameMode === 'training' ? (
-            'Select an opening to practice'
-          ) : (
-            'Create or join a game to start'
-          )}
+          {gameMode === 'play'
+            ? 'Select a color to start'
+            : gameMode === 'training'
+              ? 'Select an opening to practice'
+              : 'Create or join a game to start'}
         </div>
       )}
 
@@ -615,4 +625,4 @@ export default function ChessGame() {
       </button>
     </div>
   );
-} 
+}
