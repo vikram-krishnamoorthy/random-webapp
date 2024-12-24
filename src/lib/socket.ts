@@ -25,7 +25,7 @@ export const initializeSocket = () => {
     timeout: 20000,
     autoConnect: true,
     forceNew: true,
-    transports: ['websocket', 'polling'],
+    transports: ['polling', 'websocket'],
     upgrade: true,
     rememberUpgrade: true,
     secure: true,
@@ -42,6 +42,7 @@ export const initializeSocket = () => {
     query: {
       t: Date.now(), // Cache buster
       EIO: '4',
+      transport: 'polling',
     },
   });
 
@@ -69,8 +70,8 @@ export const initializeSocket = () => {
     // Update auth timestamp and transport on reconnection attempts
     if (socket) {
       socket.auth = { timestamp: Date.now() };
-      // Try websocket first, then fallback to polling
-      socket.io.opts.transports = ['websocket', 'polling'];
+      // Start with polling, then upgrade to websocket
+      socket.io.opts.transports = ['polling', 'websocket'];
     }
   });
 
@@ -81,10 +82,13 @@ export const initializeSocket = () => {
 
   socket.on('disconnect', (reason) => {
     console.log('Socket disconnected:', reason);
-    if (reason === 'io server disconnect' || reason === 'transport close') {
-      // Server initiated disconnect or transport closed, try to reconnect
+    if (reason === 'io server disconnect' || reason === 'transport close' || reason === 'transport error') {
+      // Server initiated disconnect or transport issues, try to reconnect
       setTimeout(() => {
-        socket?.connect();
+        if (socket) {
+          socket.io.opts.transports = ['polling', 'websocket'];
+          socket.connect();
+        }
       }, 1000);
     }
   });
@@ -98,9 +102,11 @@ export const initializeSocket = () => {
   });
 
   // Ping to keep connection alive
-  setInterval(() => {
+  const pingInterval = setInterval(() => {
     if (socket?.connected) {
       socket.emit('ping');
+    } else if (!socket) {
+      clearInterval(pingInterval);
     }
   }, 25000);
 

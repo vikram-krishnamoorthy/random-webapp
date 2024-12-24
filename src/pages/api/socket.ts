@@ -55,12 +55,12 @@ const initSocketServer = (server: HTTPServer) => {
   const io = new IOServer(server, {
     path: '/api/socketio',
     addTrailingSlash: false,
-    transports: ['websocket', 'polling'],
+    transports: ['polling', 'websocket'],
     cors: {
       origin: '*',
-      methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE', 'PATCH'],
-      allowedHeaders: ['X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+      methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
       credentials: true,
+      allowedHeaders: ['*'],
     },
     connectTimeout: 20000,
     pingTimeout: 10000,
@@ -71,6 +71,7 @@ const initSocketServer = (server: HTTPServer) => {
     serveClient: false,
     allowEIO3: true,
     maxHttpBufferSize: 1e8,
+    perMessageDeflate: false,
   });
 
   // Set up room cleanup interval
@@ -82,6 +83,8 @@ const initSocketServer = (server: HTTPServer) => {
 
   io.engine.on('initial_headers', (headers: Record<string, string>, req) => {
     headers['Access-Control-Allow-Origin'] = '*';
+    headers['Access-Control-Allow-Methods'] = 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS';
+    headers['Access-Control-Allow-Headers'] = '*';
     headers['Access-Control-Allow-Credentials'] = 'true';
   });
 
@@ -278,7 +281,12 @@ const initSocketServer = (server: HTTPServer) => {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponseWithSocket) {
+  // Handle preflight requests
   if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.status(200).end();
     return;
   }
@@ -287,9 +295,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponseW
     const io = initSocketServer(res.socket.server);
     
     // Handle the socket.io request
-    await new Promise((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       // @ts-ignore - types mismatch but this works
-      io.engine.handleRequest(req, res, resolve);
+      io.engine.handleRequest(req, res, (err?: Error) => {
+        if (err) {
+          console.error('Socket.IO request handling error:', err);
+          reject(err);
+          return;
+        }
+        resolve();
+      });
     });
   } catch (err) {
     console.error('Socket.IO error:', err);

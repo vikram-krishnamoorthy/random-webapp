@@ -20,16 +20,7 @@ const nextConfig = {
   async headers() {
     return [
       {
-        source: '/api/socket',
-        headers: [
-          { key: 'Access-Control-Allow-Credentials', value: 'true' },
-          { key: 'Access-Control-Allow-Origin', value: '*' },
-          { key: 'Access-Control-Allow-Methods', value: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS' },
-          { key: 'Access-Control-Allow-Headers', value: '*' },
-        ],
-      },
-      {
-        source: '/api/socketio',
+        source: '/:path*',
         headers: [
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
           { key: 'Access-Control-Allow-Origin', value: '*' },
@@ -44,11 +35,11 @@ const nextConfig = {
     return {
       beforeFiles: [
         {
-          source: '/api/socketio/:path*',
+          source: '/socket.io/:path*',
           destination: '/api/socket',
         },
         {
-          source: '/socket.io/:path*',
+          source: '/api/socketio/:path*',
           destination: '/api/socket',
         },
       ],
