@@ -23,14 +23,28 @@ interface GameRoom {
   game: Chess;
   moves: string[];
   lastMoveTime: number;
+  lastPing?: number;
 }
 
 const rooms = new Map<string, GameRoom>();
+const ROOM_CLEANUP_INTERVAL = 30000; // 30 seconds
+const ROOM_INACTIVE_TIMEOUT = 300000; // 5 minutes
 
 export const config = {
   api: {
     bodyParser: false,
   },
+};
+
+const cleanupInactiveRooms = (io: IOServer) => {
+  const now = Date.now();
+  rooms.forEach((room, roomId) => {
+    if (now - room.lastMoveTime > ROOM_INACTIVE_TIMEOUT && (!room.lastPing || now - room.lastPing > ROOM_INACTIVE_TIMEOUT)) {
+      io.to(roomId).emit('roomClosed', { reason: 'inactivity' });
+      rooms.delete(roomId);
+      console.log('Room deleted due to inactivity:', roomId);
+    }
+  });
 };
 
 const initSocketServer = (server: HTTPServer) => {
@@ -41,16 +55,16 @@ const initSocketServer = (server: HTTPServer) => {
   const io = new IOServer(server, {
     path: '/api/socketio',
     addTrailingSlash: false,
-    transports: ['polling', 'websocket'],
+    transports: ['websocket', 'polling'],
     cors: {
       origin: '*',
       methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE', 'PATCH'],
       allowedHeaders: ['X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
       credentials: true,
     },
-    connectTimeout: 10000,
-    pingTimeout: 5000,
-    pingInterval: 3000,
+    connectTimeout: 20000,
+    pingTimeout: 10000,
+    pingInterval: 25000,
     upgradeTimeout: 10000,
     allowUpgrades: true,
     cookie: false,
@@ -59,10 +73,31 @@ const initSocketServer = (server: HTTPServer) => {
     maxHttpBufferSize: 1e8,
   });
 
-  (server as ServerWithIO).io = io;
+  // Set up room cleanup interval
+  setInterval(() => cleanupInactiveRooms(io), ROOM_CLEANUP_INTERVAL);
+
+  io.engine.on('connection_error', (err) => {
+    console.error('Connection error:', err);
+  });
+
+  io.engine.on('initial_headers', (headers: Record<string, string>, req) => {
+    headers['Access-Control-Allow-Origin'] = '*';
+    headers['Access-Control-Allow-Credentials'] = 'true';
+  });
 
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
+    
+    // Handle ping messages to keep connection alive
+    socket.on('ping', () => {
+      socket.emit('pong');
+      // Update last ping time for all rooms the socket is in
+      rooms.forEach((room, roomId) => {
+        if (room.white === socket.id || room.black === socket.id || room.spectators.includes(socket.id)) {
+          room.lastPing = Date.now();
+        }
+      });
+    });
 
     socket.on('requestGameState', (roomId: string) => {
       const room = rooms.get(roomId);
@@ -75,6 +110,8 @@ const initSocketServer = (server: HTTPServer) => {
           isGameOver: room.game.isGameOver(),
           turn: room.game.turn(),
         });
+      } else {
+        socket.emit('error', 'Room not found');
       }
     });
 
@@ -82,7 +119,7 @@ const initSocketServer = (server: HTTPServer) => {
       try {
         const roomId = Math.random().toString(36).substring(7);
         const game = new Chess();
-
+        
         rooms.set(roomId, {
           white: socket.id,
           black: undefined,
@@ -90,12 +127,13 @@ const initSocketServer = (server: HTTPServer) => {
           game,
           moves: [],
           lastMoveTime: Date.now(),
+          lastPing: Date.now(),
         });
 
         socket.join(roomId);
         socket.emit('roomCreated', { roomId, color: 'white' });
-
-        io?.to(roomId).emit('gameState', {
+        
+        io.to(roomId).emit('gameState', {
           fen: game.fen(),
           white: socket.id,
           black: undefined,
@@ -131,8 +169,9 @@ const initSocketServer = (server: HTTPServer) => {
           room.spectators.push(socket.id);
         }
 
+        room.lastPing = Date.now();
         socket.join(roomId);
-
+        
         if (assignedColor) {
           socket.emit('colorAssigned', assignedColor);
           console.log('Color assigned:', assignedColor, 'to', socket.id);
@@ -140,7 +179,7 @@ const initSocketServer = (server: HTTPServer) => {
           socket.emit('spectatorMode');
         }
 
-        io?.to(roomId).emit('gameState', {
+        io.to(roomId).emit('gameState', {
           fen: room.game.fen(),
           white: room.white,
           black: room.black,
@@ -163,10 +202,7 @@ const initSocketServer = (server: HTTPServer) => {
         }
 
         const isWhiteTurn = room.game.turn() === 'w';
-        if (
-          (isWhiteTurn && room.white !== socket.id) ||
-          (!isWhiteTurn && room.black !== socket.id)
-        ) {
+        if ((isWhiteTurn && room.white !== socket.id) || (!isWhiteTurn && room.black !== socket.id)) {
           socket.emit('error', 'Not your turn');
           return;
         }
@@ -180,8 +216,9 @@ const initSocketServer = (server: HTTPServer) => {
 
           room.moves.push(result.san);
           room.lastMoveTime = Date.now();
+          room.lastPing = Date.now();
 
-          io?.to(roomId).emit('gameState', {
+          io.to(roomId).emit('gameState', {
             fen: room.game.fen(),
             white: room.white,
             black: room.black,
@@ -198,7 +235,7 @@ const initSocketServer = (server: HTTPServer) => {
             } else {
               gameResult = 'draw';
             }
-            io?.to(roomId).emit('gameEnded', { result: gameResult });
+            io.to(roomId).emit('gameEnded', { result: gameResult });
           }
         } catch (moveError) {
           console.error('Move error:', moveError);
@@ -217,8 +254,8 @@ const initSocketServer = (server: HTTPServer) => {
             const color = room.white === socket.id ? 'white' : 'black';
             if (color === 'white') room.white = undefined;
             if (color === 'black') room.black = undefined;
-
-            io?.to(roomId).emit('playerLeft', {
+            
+            io.to(roomId).emit('playerLeft', {
               color,
               gameState: room.game.fen(),
               moves: room.moves,
@@ -229,7 +266,7 @@ const initSocketServer = (server: HTTPServer) => {
               console.log('Room deleted:', roomId);
             }
           }
-          room.spectators = room.spectators.filter((id) => id !== socket.id);
+          room.spectators = room.spectators.filter(id => id !== socket.id);
         });
       } catch (error) {
         console.error('Error handling disconnect:', error);
@@ -248,7 +285,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponseW
 
   try {
     const io = initSocketServer(res.socket.server);
-
+    
     // Handle the socket.io request
     await new Promise((resolve) => {
       // @ts-ignore - types mismatch but this works
