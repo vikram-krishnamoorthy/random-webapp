@@ -31,11 +31,17 @@ export const initializeSocket = () => {
     secure: true,
     rejectUnauthorized: false,
     withCredentials: true,
+    extraHeaders: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+      'Access-Control-Allow-Headers': '*',
+    },
     auth: {
       timestamp: Date.now(),
     },
     query: {
       t: Date.now(), // Cache buster
+      EIO: '4',
     },
   });
 
@@ -49,7 +55,7 @@ export const initializeSocket = () => {
       return;
     }
 
-    // Force a clean reconnection after error
+    // Force a clean reconnection after error with exponential backoff
     setTimeout(() => {
       if (socket) {
         socket.close();

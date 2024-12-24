@@ -20,12 +20,21 @@ const nextConfig = {
   async headers() {
     return [
       {
+        source: '/api/socket',
+        headers: [
+          { key: 'Access-Control-Allow-Credentials', value: 'true' },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: '*' },
+        ],
+      },
+      {
         source: '/api/socketio',
         headers: [
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
           { key: 'Access-Control-Allow-Origin', value: '*' },
-          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,OPTIONS,PUT,DELETE,PATCH' },
-          { key: 'Access-Control-Allow-Headers', value: 'X-Requested-With,Content-Type,Accept,Authorization' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: '*' },
         ],
       },
     ];
@@ -37,12 +46,10 @@ const nextConfig = {
         {
           source: '/api/socketio/:path*',
           destination: '/api/socket',
-          has: [
-            {
-              type: 'query',
-              key: 'EIO',
-            },
-          ],
+        },
+        {
+          source: '/socket.io/:path*',
+          destination: '/api/socket',
         },
       ],
     };
