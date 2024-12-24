@@ -40,10 +40,35 @@ export const initializeSocket = () => {
       timestamp: Date.now(),
     },
     query: {
-      t: Date.now(), // Cache buster
+      t: Date.now(),
       EIO: '4',
       transport: 'polling',
     },
+  });
+
+  socket.io.on("error", (error) => {
+    console.error('Transport error:', error);
+    if (socket) {
+      socket.io.opts.transports = ['polling'];
+      socket.connect();
+    }
+  });
+
+  socket.io.on("reconnect_attempt", () => {
+    if (socket) {
+      socket.io.opts.transports = ['polling'];
+    }
+  });
+
+  socket.io.on("upgrade", () => {
+    console.log('Transport upgraded to WebSocket');
+  });
+
+  socket.io.on("upgrade_error", (error) => {
+    console.error('WebSocket upgrade failed:', error);
+    if (socket) {
+      socket.io.opts.transports = ['polling'];
+    }
   });
 
   socket.on('connect_error', (error) => {
@@ -56,10 +81,9 @@ export const initializeSocket = () => {
       return;
     }
 
-    // Force a clean reconnection after error with exponential backoff
     setTimeout(() => {
       if (socket) {
-        socket.close();
+        socket.io.opts.transports = ['polling'];
         socket.connect();
       }
     }, Math.min(1000 * Math.pow(2, reconnectAttempts), 10000));
@@ -67,26 +91,30 @@ export const initializeSocket = () => {
 
   socket.on('reconnect_attempt', (attempt) => {
     console.log(`Reconnection attempt ${attempt}`);
-    // Update auth timestamp and transport on reconnection attempts
     if (socket) {
       socket.auth = { timestamp: Date.now() };
-      // Start with polling, then upgrade to websocket
-      socket.io.opts.transports = ['polling', 'websocket'];
+      socket.io.opts.transports = ['polling'];
     }
   });
 
   socket.on('connect', () => {
     console.log('Socket connected successfully');
-    reconnectAttempts = 0; // Reset reconnection attempts on successful connection
+    reconnectAttempts = 0;
+    
+    // Try upgrading to WebSocket after successful polling connection
+    if (socket) {
+      setTimeout(() => {
+        socket.io.opts.transports = ['polling', 'websocket'];
+      }, 1000);
+    }
   });
 
   socket.on('disconnect', (reason) => {
     console.log('Socket disconnected:', reason);
     if (reason === 'io server disconnect' || reason === 'transport close' || reason === 'transport error') {
-      // Server initiated disconnect or transport issues, try to reconnect
       setTimeout(() => {
         if (socket) {
-          socket.io.opts.transports = ['polling', 'websocket'];
+          socket.io.opts.transports = ['polling'];
           socket.connect();
         }
       }, 1000);
@@ -95,13 +123,12 @@ export const initializeSocket = () => {
 
   socket.on('error', (error) => {
     console.error('Socket error:', error);
-    // Attempt to recover from errors
     if (socket?.connected) {
+      socket.io.opts.transports = ['polling'];
       socket.disconnect().connect();
     }
   });
 
-  // Ping to keep connection alive
   const pingInterval = setInterval(() => {
     if (socket?.connected) {
       socket.emit('ping');

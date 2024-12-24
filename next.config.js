@@ -37,10 +37,24 @@ const nextConfig = {
         {
           source: '/socket.io/:path*',
           destination: '/api/socket',
+          has: [
+            {
+              type: 'header',
+              key: 'connection',
+              value: '(upgrade|keep-alive)',
+            },
+          ],
         },
         {
           source: '/api/socketio/:path*',
           destination: '/api/socket',
+          has: [
+            {
+              type: 'header',
+              key: 'connection',
+              value: '(upgrade|keep-alive)',
+            },
+          ],
         },
       ],
     };

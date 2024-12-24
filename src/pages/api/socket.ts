@@ -1,20 +1,10 @@
 import { Server as IOServer } from 'socket.io';
-import type { NextApiRequest, NextApiResponse } from 'next';
-import type { Server as HTTPServer } from 'http';
-import type { Socket as NetSocket } from 'net';
+import type { NextRequest } from 'next/server';
 import { Chess } from 'chess.js';
 
-interface ServerWithIO extends HTTPServer {
-  io?: IOServer;
-}
-
-interface SocketWithIO extends NetSocket {
-  server: ServerWithIO;
-}
-
-interface NextApiResponseWithSocket extends NextApiResponse {
-  socket: SocketWithIO;
-}
+export const config = {
+  runtime: 'edge',
+};
 
 interface GameRoom {
   white?: string;
@@ -27,32 +17,15 @@ interface GameRoom {
 }
 
 const rooms = new Map<string, GameRoom>();
-const ROOM_CLEANUP_INTERVAL = 30000; // 30 seconds
-const ROOM_INACTIVE_TIMEOUT = 300000; // 5 minutes
+const ROOM_CLEANUP_INTERVAL = 30000;
+const ROOM_INACTIVE_TIMEOUT = 300000;
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+let io: IOServer | null = null;
 
-const cleanupInactiveRooms = (io: IOServer) => {
-  const now = Date.now();
-  rooms.forEach((room, roomId) => {
-    if (now - room.lastMoveTime > ROOM_INACTIVE_TIMEOUT && (!room.lastPing || now - room.lastPing > ROOM_INACTIVE_TIMEOUT)) {
-      io.to(roomId).emit('roomClosed', { reason: 'inactivity' });
-      rooms.delete(roomId);
-      console.log('Room deleted due to inactivity:', roomId);
-    }
-  });
-};
+const initSocketServer = () => {
+  if (io) return io;
 
-const initSocketServer = (server: HTTPServer) => {
-  if ((server as ServerWithIO).io) {
-    return (server as ServerWithIO).io;
-  }
-
-  const io = new IOServer(server, {
+  io = new IOServer({
     path: '/api/socketio',
     addTrailingSlash: false,
     transports: ['polling', 'websocket'],
@@ -75,26 +48,22 @@ const initSocketServer = (server: HTTPServer) => {
   });
 
   // Set up room cleanup interval
-  setInterval(() => cleanupInactiveRooms(io), ROOM_CLEANUP_INTERVAL);
-
-  io.engine.on('connection_error', (err) => {
-    console.error('Connection error:', err);
-  });
-
-  io.engine.on('initial_headers', (headers: Record<string, string>, req) => {
-    headers['Access-Control-Allow-Origin'] = '*';
-    headers['Access-Control-Allow-Methods'] = 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS';
-    headers['Access-Control-Allow-Headers'] = '*';
-    headers['Access-Control-Allow-Credentials'] = 'true';
-  });
+  setInterval(() => {
+    const now = Date.now();
+    rooms.forEach((room, roomId) => {
+      if (now - room.lastMoveTime > ROOM_INACTIVE_TIMEOUT && (!room.lastPing || now - room.lastPing > ROOM_INACTIVE_TIMEOUT)) {
+        io?.to(roomId).emit('roomClosed', { reason: 'inactivity' });
+        rooms.delete(roomId);
+        console.log('Room deleted due to inactivity:', roomId);
+      }
+    });
+  }, ROOM_CLEANUP_INTERVAL);
 
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
     
-    // Handle ping messages to keep connection alive
     socket.on('ping', () => {
       socket.emit('pong');
-      // Update last ping time for all rooms the socket is in
       rooms.forEach((room, roomId) => {
         if (room.white === socket.id || room.black === socket.id || room.spectators.includes(socket.id)) {
           room.lastPing = Date.now();
@@ -136,7 +105,7 @@ const initSocketServer = (server: HTTPServer) => {
         socket.join(roomId);
         socket.emit('roomCreated', { roomId, color: 'white' });
         
-        io.to(roomId).emit('gameState', {
+        io?.to(roomId).emit('gameState', {
           fen: game.fen(),
           white: socket.id,
           black: undefined,
@@ -182,7 +151,7 @@ const initSocketServer = (server: HTTPServer) => {
           socket.emit('spectatorMode');
         }
 
-        io.to(roomId).emit('gameState', {
+        io?.to(roomId).emit('gameState', {
           fen: room.game.fen(),
           white: room.white,
           black: room.black,
@@ -221,7 +190,7 @@ const initSocketServer = (server: HTTPServer) => {
           room.lastMoveTime = Date.now();
           room.lastPing = Date.now();
 
-          io.to(roomId).emit('gameState', {
+          io?.to(roomId).emit('gameState', {
             fen: room.game.fen(),
             white: room.white,
             black: room.black,
@@ -238,7 +207,7 @@ const initSocketServer = (server: HTTPServer) => {
             } else {
               gameResult = 'draw';
             }
-            io.to(roomId).emit('gameEnded', { result: gameResult });
+            io?.to(roomId).emit('gameEnded', { result: gameResult });
           }
         } catch (moveError) {
           console.error('Move error:', moveError);
@@ -258,7 +227,7 @@ const initSocketServer = (server: HTTPServer) => {
             if (color === 'white') room.white = undefined;
             if (color === 'black') room.black = undefined;
             
-            io.to(roomId).emit('playerLeft', {
+            io?.to(roomId).emit('playerLeft', {
               color,
               gameState: room.game.fen(),
               moves: room.moves,
@@ -280,34 +249,34 @@ const initSocketServer = (server: HTTPServer) => {
   return io;
 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponseWithSocket) {
-  // Handle preflight requests
+export default async function handler(req: NextRequest) {
   if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', '*');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.status(200).end();
-    return;
+    return new Response(null, {
+      status: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Allow-Credentials': 'true',
+      },
+    });
   }
 
   try {
-    const io = initSocketServer(res.socket.server);
+    const io = initSocketServer();
     
-    // Handle the socket.io request
-    await new Promise<void>((resolve, reject) => {
-      // @ts-ignore - types mismatch but this works
-      io.engine.handleRequest(req, res, (err?: Error) => {
+    return new Promise<Response>((resolve, reject) => {
+      io?.engine.handleRequest(req as any, undefined as any, (err?: Error) => {
         if (err) {
           console.error('Socket.IO request handling error:', err);
-          reject(err);
+          reject(new Response('Internal Server Error', { status: 500 }));
           return;
         }
-        resolve();
+        resolve(new Response(null, { status: 200 }));
       });
     });
   } catch (err) {
     console.error('Socket.IO error:', err);
-    res.status(500).end();
+    return new Response('Internal Server Error', { status: 500 });
   }
 }
